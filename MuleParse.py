@@ -2,9 +2,9 @@ import argparse
 from MuleLines import *
 
 # REFACTORING:
-# ISSUE: contents of when/otherwise not parsed correctly (or at all) --> getMuleFileLines
+# Complete MuleLines implementation
+# Migrate dependency tag generation to MuleLines
 # Add support for all components
-# Add argparse inputs
 # Document code
 
 def getMuleFileLines(filename):
@@ -45,28 +45,40 @@ def generateDependencyTags(filename, muleFileLines):
         output.write('\t</spring:beans>')
     
     # Remove lines that have already been parsed
-    del muleFileLines[:lastImportIndex]    
-        
-def generateMUnitBody(filename, muleFileLines):
-    MUnitBody = [] # Create MUnit tags as we iterate through the lines
-    for line in muleFileLines:
-        MUnitBody.append('') 
-        
-    with open(filename, 'a') as output:
-        for line in MUnitBody:
-            output.write(line)
-        output.write('</mule>')
+    del muleFileLines[:lastImportIndex]
         
 def main():
-    outputFile = 'munit.xml'
-    muleFileLines = getMuleFileLines('example.xml')
-    mule = MuleLines()
-    mule.createMuleDict(muleFileLines)
-    print str(mule.createMUnitDict())
+    print ('Please input your desired file to test and output directory.\n'
+            'Use /input and /output to specify your file and directory.\n\n')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('/input', type=str, required=True, help='Input file path')
+    parser.add_argument('/output', type=str, required=True, help='Output file path')
     
-    #generateBaseMUnitFile(outputFile)
-    #generateDependencyTags(outputFile, muleFileLines)
-    #generateMUnitBody(outputFile, muleFileLines)
+    args = parser.parse_args()
+    
+    if args.input and args.output:
+        outputFile = args.output
+        mule = MuleLines()
+        muleFileLines = getMuleFileLines(args.input)
+        mule.createMuleDict(muleFileLines)
+        mUnitBody = mule.createMUnitDict()
+        
+        #generateBaseMUnitFile(outputFile)
+        #generateDependencyTags(outputFile, muleFileLines)
+    else:
+        print 'Invalid input! Must specify both /input and /output directories.'
+    
+def testMain():
+        outputFile = 'munitTest.xml'
+        mule = MuleLines()
+        muleFileLines = getMuleFileLines('example.xml')
+        mule.createMuleDict(muleFileLines)
+        mUnitBody = mule.createMUnitDict()
+        for key in mUnitBody.keys():
+            print key, '\t', mUnitBody.get(key)
+            
+        #generateBaseMUnitFile(outputFile)
+        #generateDependencyTags(outputFile, muleFileLines)
     
 if __name__ == "__main__":
-    main()
+    testMain()
