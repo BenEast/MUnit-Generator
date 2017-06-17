@@ -1,132 +1,134 @@
 import shlex
 from collections import OrderedDict
+from TagList import TagList
 
-class PairList:
-    def __init__(self):
-        self._list = []
-        
-    def keys(self):
-        return [x[0] for x in self._list]
-        
-    def insert(self, pair):
-        self._list.append(pair)
-        
-    def remove(self, key):
-        for pair in self._list:
-            if pair[0] == key:
-                self._list.remove(pair)
-                return
-            
-    def get(self, tag):
-        for pair in self._list:
-            if pair[0] == tag:
-                return pair[1]
-        return None        
-    
-    def toString(self):
-        return str(self._list)    
-        
+###########################
+# Author: Benjamin East
+# Last Updated: 06/17/2017
+###########################
+
+# A custom class to parse lines of Mule code and generate mUnit tests based on
+# a pre-existing base of code.
 class MuleLines:
+    # Initialize TagList objects for existing Mule code and MUnit code to be generated.
     def __init__(self):
-        self._tagList = PairList()
-        
+        self._muleDict = TagList()
+        self._mUnitDict = TagList()
+    
+    # Parse XML lines of Mule code into a TagList object.
     def createMuleDict(self, lines):
         for line in lines:
+            # Take tagged lines that are not lists of Mule dependencies
             if line[0] == '<' and not line[1] == '?':
-                splitLine = shlex.split(line) # Preserves spaces inside quoted strings
-                attrDict = OrderedDict()
+                splitLine = shlex.split(line)  # Split the line; preserves spaces in quoted strings.
+                # If the XML tag has additional attributes, map them to an OrderedDict
                 if len(splitLine) > 1:
-                    for item in splitLine[1:]:
+                    attrDict = OrderedDict()
+                    for item in splitLine[1:]:  # Skip the tag in the line
                         attrAndValue = item.split('=')
                         attrDict[attrAndValue[0]] = attrAndValue[1].strip('/>')
-                    self._tagList.insert((splitLine[0].lower(), attrDict))
+                    self._muleDict.insert((splitLine[0].lower(), attrDict))
                 else:
-                    self._tagList.insert((splitLine[0], None))
-        
+                    self._muleDict.insert((splitLine[0], None))
+        self._calculateTestNumbers()
+    
+    # Parses the TagList of Mule code to determine how many tests are needed based on choice blocks.
+    # Adds an additional attribute 'numTests' to flow and sub-flow tags in the mule TagList
+    def _calculateTestNumbers(self):
+        clonedList = TagList.clone(self._muleDict)
+        testsNeeded = 1
+        currentFlowPair = None
+        for pair in clonedList.pairs(): 
+            # Take action on certain tags below; where pair[0] is the Mule XML tag.
+            if pair[0] == '<flow':
+                currentFlowPair = pair
+                
+            elif pair[0] == '<sub-flow':
+                currentFlowPair = pair
+                
+            elif pair[0] == '<when':
+                testsNeeded = testsNeeded + 1
+                
+            elif pair[0] == '<otherwise':
+                testsNeeded = testsNeeded + 1
+                
+            elif pair[0] == '</flow>':
+                # Apply choiceOptions as numTests attribute for the current flow
+                self._muleDict.addAttributeToPair(currentFlowPair, 'numTests', testsNeeded)
+                testsNeeded = 1
+                currentFlowPair = None
+                
+            elif pair[0] == '</sub-flow>':
+                # Apply choiceOptions as numTests attribute for the current flow
+                self._muleDict.addAttributeToPair(currentFlowPair, 'numTests', testsNeeded)
+                testsNeeded = 1
+                currentFlowPair = None
+                
+            clonedList.remove(pair)
+    
+    # Create an MUnit TagList by parsing the Mule XML tags and properties from the TagList.
+    # This creates the main body of the MUnit XML file.           
     def createMUnitDict(self):
         # Vars to monitor position during parsing
-        inFlow = False
-        inChoice = False
         testCount = 0
-        mUnitTagList = PairList()
+        muleDictClone = TagList.clone(self._muleDict)
+        self._mUnitDict = TagList()
         
-        for tag in self._tagList.keys():
-            muleAttributes = self._tagList.get(tag)
-            mUnitAttributes = dict()
+        # Iterate through the Mule XML tags and attributes to create MUnit tags and attributes.
+        for pair in muleDictClone.pairs():
+            muleAttributes = pair[1] # Attributes for the given Mule XML tag
+            mUnitAttributes = OrderedDict() # Holder for MUnit attributes if they are created
             
-            if tag == '<flow':
+            if pair[0] == '<flow':
                 testCount = testCount + 1
-                inFlow = True
                 for key in muleAttributes.keys():
                     if key == 'name':
                         mUnitAttributes['name'] = 'doc-test-' + muleAttributes.get(key) + 'Test' + str(testCount)
-                mUnitTagList.insert(('<munit:test', mUnitAttributes))
+                self._mUnitDict.insert(('<munit:test', mUnitAttributes))
+            
+            elif pair[0] == '</flow>':
+                testCount = 0
+                self._mUnitDict.insert(('</munit:test>', None))   
                 
-            elif tag == '<sub-flow':
+            elif pair[0] == '<sub-flow':
                 testCount = testCount + 1
-                inFlow = True
                 for key in muleAttributes.keys():
                     if key == 'name':
                         mUnitAttributes['name'] = 'doc-test-' + muleAttributes.get(key) + 'Test' + str(testCount)
-                mUnitTagList.insert(('<munit:test', mUnitAttributes))
-                
-            elif tag == '<http:listener':
+                self._mUnitDict.insert(('<munit:test', mUnitAttributes))
+                        
+            elif pair[0] == '</sub-flow>':
+                testCount = 0
+                self._mUnitDict.insert(('</munit:test>', None))
+                    
+            elif pair[0] == '<http:listener':
                 continue
                 
-            elif tag == '<set-payload':
-                mUnitAttributes['payload'] = ''
+            elif pair[0] == '<set-payload':
+                mUnitAttributes['payload'] = '' # MUnit payloads will be empty; users will need to specify
                 for key in muleAttributes.keys():
                     if key == 'doc:name':
                         mUnitAttributes['doc:name'] = 'Set Message Payload for Test ' + str(testCount)
-                mUnitTagList.insert(('<munit:set', mUnitAttributes))
+                self._mUnitDict.insert(('<munit:set', mUnitAttributes))
                 
-            elif tag == '<flow-ref':
+            elif pair[0] == '<flow-ref':  # Will likely want to change to mock verify call
                 for key in muleAttributes.keys():
                     if key == 'name':
                         mUnitAttributes['name'] = muleAttributes.get('name')
                     elif key == 'doc:name':
                         mUnitAttributes['doc:name'] = muleAttributes.get('doc:name')
-                mUnitTagList.insert(('<munit:set', mUnitAttributes))
-                
-            elif tag == '<choice':
-                inChoice = True
+                self._mUnitDict.insert(('<munit:set', mUnitAttributes))
                         
-            elif tag == '<when':
+            elif pair[0] == '<when':
                 continue
-                #testCount = testCount + 1
                 
-            elif tag == '<otherwise':
+            elif pair[0] == '<otherwise':
                 continue
-                #testCount = testCount + 1
                 
-            elif tag == '<set-variable':
-                a=1
-                
-            elif tag == '</flow>':
-                testCount = 0
-                inFlow = False
-                mUnitTagList.insert(('</munit:test>', None))
-                
-            elif tag == '</sub-flow>':
-                testCount = 0
-                inFlow = False
-                mUnitTagList.insert(('</munit:test>', None))
-                
-            elif tag == '</when>':
+            elif pair[0] == '<set-variable':
                 continue
-            elif tag == '</otherwise>':
-                continue
-            elif tag == '</choice>':
-                inChoice = False
-            elif tag == '</mule>':
-                mUnitTagList.insert(('</mule>', None))
+                
+            elif pair[0] == '</mule>':
+                self._mUnitDict.insert(('</mule>', None))
             
-            self._tagList.remove(tag)
-            
-        return mUnitTagList
-    
-    def _createMUnitAttributes(self, attribsDict):
-        for key in attribsDict.keys():
-            print key, attribsDict.get(key)
-        
-    
+            muleDictClone.remove(pair)
