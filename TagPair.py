@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 ###########################
 # Author: Benjamin East
-# Last Updated: 06/23/2017
+# Last Updated: 06/24/2017
 ###########################
 
 # A custom class of (str, OrderedDict) pairs; made to map XML tags and attributes to.
