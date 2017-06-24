@@ -91,4 +91,3 @@ class TagPair:
     def removeAttribute(self, attributeName : str) -> None:
         if attributeName in self._attributes:
             self._attributes.pop(attributeName, None)
-            
