@@ -2,7 +2,7 @@ from TagPair import TagPair
 
 ###########################
 # Author: Benjamin East
-# Last Updated: 06/23/2017
+# Last Updated: 06/24/2017
 ###########################
         
 # A custom class to act as an ordered list of XML tags, paired with an OrderedDict of the
