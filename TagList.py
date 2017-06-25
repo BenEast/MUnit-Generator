@@ -20,17 +20,17 @@ class TagList:
     def __eq__(self, other) -> bool:
         if not isinstance(other, TagList):
             return False
-        if not len(self._list) == len(other._list):
+        if len(self._list) != len(other._list):
             return False
         for i in range(0, len(self._list)):
-            if not self._list[i] == other._list[i]:
+            if self._list[i] != other._list[i]:
                 return False
         return True    
     
     # Returns true if self != other and false otherwise.
     def __ne__(self, other) -> bool:
         return not self.__eq__(other)
-    
+
     # Returns a string output for the TagList.
     def __str__(self) -> str:
         output = ''
@@ -110,19 +110,15 @@ class TagList:
     def remove(self, targetPair : TagPair) -> None:
         if not targetPair in self._list or not isinstance(targetPair, TagPair):
             return
-        for pair in self._list:
-            if pair == targetPair:
-                self._list.remove(pair)
-                return    
-    
+        self._list.remove(targetPair)
+
     # Removes all occurences of targetPair from the TagList.
     def removeAll(self, targetPair : TagPair) -> None:
         if not targetPair in self._list or not isinstance(targetPair, TagPair):
             return
-        for pair in self._list:
-            if pair == targetPair:
-                self._list.remove(pair)
-                        
+        while targetPair in self._list:
+            self._list.remove(targetPair)
+
     # Return a list of the XML tags in the TagList    
     def tags(self) -> []:
         return [x.getTag() for x in self._list]

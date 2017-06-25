@@ -25,15 +25,15 @@ class TagPair:
     def __eq__(self, other) -> bool:
         if not isinstance(other, TagPair):
             return False
-        if not self._tag == other.getTag():
+        if self._tag != other.getTag():
             return False
-        if not len(self._attributes) == len(other.getAttributes()):
+        if len(self._attributes) != len(other.getAttributes()):
             return False
         for key in self._attributes.keys():
             if not key in other.getAttributes():
                 return False
             else:
-                if not self._attributes.get(key) == other.getAttributes().get(key):
+                if self._attributes.get(key) != other.getAttributes().get(key):
                     return False
         return True
     
@@ -81,8 +81,6 @@ class TagPair:
     # Can raise a TypeError if an incorrect type is given.
     def setAttribute(self, attributeName : str, attributeValue : str) -> None:
         if isinstance(attributeName, str) and isinstance(attributeValue, str):
-            if attributeName in self._attributes:
-                self.removeAttribute(attributeName)
             self._attributes[attributeName] = attributeValue
         else:
             raise TypeError('Invalid parameter types passed to TagPair setAttribute')
