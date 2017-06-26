@@ -1,3 +1,4 @@
+import os
 import shlex
 import sys
 from collections import OrderedDict
@@ -6,7 +7,7 @@ from TagPair import TagPair
 
 ###########################
 # Author: Benjamin East
-# Last Updated: 06/24/2017
+# Last Updated: 06/25/2017
 ###########################
 
 # A custom class to parse lines of Mule code and generate mUnit tests based on
@@ -23,27 +24,25 @@ class MuleLines:
     # Create an MUnit TagList by parsing the Mule XML tags and properties from the TagList.        
     def createMUnitTests(self) -> None:
         self._generateMUnitDependencies()
-        # Flows is an array of TagLists, where each TagList is a mule flow
-        flows = self._isolateFlows()
-        for flow in flows:
-            # Isolate the operations performed in the mule choice blocks
-            mUnitChoiceOperations = self._convertMuletoMUnit(self._extractChoiceOperations(flow))
-            # Generate the mUnit version of the code
-            mUnitFlow = self._convertMuletoMUnit(flow)
+        # isolateFlows returns an array of TagLists, which are each a mule flow
+        for flow in self._isolateFlows():
+            # Convert operations in choice blocks to mUnit code
+            mUnitChoiceOperations = self._extractChoiceOperations(flow)
+            self._replaceChoiceBlocks(flow)
             # Generate multiple test flows if a choice block is present
-            if mUnitFlow.containsTag('choicePlaceholder'):
-                testFlows = self._generateMUnitTestFlows(mUnitChoiceOperations, mUnitFlow)
-                for flow in testFlows:
-                    for pair in flow.pairs():
+            if flow.containsTag('choicePlaceholder'):
+                for flow in self._generateMUnitTestFlows(mUnitChoiceOperations, flow):
+                    mUnitFlow = self._convertMuletoMUnit(flow)
+                    for pair in mUnitFlow.pairs():
                         self._mUnitTagList.append(pair)
-            # Otherwise, create a single test flow
-            else:
+            else:  # Otherwise, create a single test flow
+                mUnitFlow = self._convertMuletoMUnit(flow)
                 for pair in mUnitFlow.pairs():
                     self._mUnitTagList.append(pair)
         endMuleAttributes = OrderedDict()
         endMuleAttributes['closeAtEnd'] = False
         self._mUnitTagList.append(TagPair('/mule', endMuleAttributes))
-        
+
     # Converts the mUnitTagList to XML code and writes it to the provided outputFilePath.
     def createMUnitSuiteFile(self, outputFilePath : str) -> None:
         if self._mUnitTagList.isEmpty():
@@ -70,7 +69,6 @@ class MuleLines:
                 # Create a test number for flows with multiple test cases
                 if pair.getTag() == 'munit:test': 
                     if currentFlow != pair.getAttribute('name'):
-                        # Set current flow to the new flow and reset test number to 1
                         currentFlow = pair.getAttribute('name')
                         testNumber = 1
                     else:
@@ -78,7 +76,7 @@ class MuleLines:
                 # Create the MUnit file lines and write them to the output file.
                 mUnitLine = '<' + pair.getTag()
                 attributes = pair.getAttributes()
-                for attribute in attributes:
+                for attribute in pair.getAttributes():
                     if pair.getTag() == 'munit:test' and attribute == 'name':
                         mUnitLine = (mUnitLine + ' ' + attribute + '="' + attributes.get(attribute) 
                                         + str(testNumber) + '"')
@@ -101,15 +99,14 @@ class MuleLines:
             file.close()
 
     # Parse XML lines of Mule code into the _muleTagList for this object.
-    def parseMuleFileLines(self, inputFileName : str) -> None:
-        self._inputFileName = inputFileName
-        self._extractMuleFileLines()
+    def parseMuleFileLines(self, inputFilePath : str) -> None:
+        self._extractMuleFileLines(inputFilePath)
+        self._inputFileName = os.path.basename(inputFilePath)  # Take only the filename
         for line in self._muleFileLines:
             if line[0] == '<' and line[1] != '?' and line[1] != '!':
                 splitLine = shlex.split(line)  # Split the line; preserves spaces in quoted strings.
-                # If the XML tag has additional attributes, map them to an OrderedDict
-                if len(splitLine) > 1:
-                    attrDict = OrderedDict()
+                attrDict = OrderedDict()
+                if len(splitLine) > 1:  # Map additional attributes to attrDict
                     for item in splitLine[1:]:  # Skip the tag in the line
                         attrAndValue = item.split('=')
                         # Add a closeAtEnd attribute, for use in writing the final output file
@@ -123,54 +120,148 @@ class MuleLines:
                             attrDict[attrAndValue[0]] = attrAndValue[1]
                     self._muleTagList.append(TagPair(splitLine[0].lower().strip('<'), attrDict))
                 else:  # Add a closeAtEnd attribute, for use in writing the final output file
-                    attrDict = OrderedDict()
                     if splitLine[0][:2] == '</':
                         attrDict['closeAtEnd'] = False
                     else:
                         attrDict['closeAtEnd'] = True
                     self._muleTagList.append(TagPair(splitLine[0].lower().strip('<').strip('>'), attrDict))
     
-    # Convert a TagList of mule code to a TagList of MUnit code.
+    # Convert a mule flow to a TagList of MUnit code.
     # Can raise a TypeError if incorrect parameter types are provided.
-    def _convertMuletoMUnit(self, muleTagList : TagList) -> TagList:
-        if not isinstance(muleTagList, TagList):
+    def _convertMuletoMUnit(self, muleFlowTagList : TagList) -> TagList:
+        if not isinstance(muleFlowTagList, TagList):
             raise TypeError('Invalid parameter passed to MuleLines _convertMuletoMUnit')
-        self._replaceChoiceBlocks(muleTagList)  # Replace choice blocks with choicePlaceholder
+        self._replaceChoiceBlocks(muleFlowTagList)  # Replace choice blocks with choicePlaceholder
         mUnitTagList = TagList()
         # Iterate through the Mule XML tags and attributes to create MUnit tags and attributes.
-        for pair in muleTagList.pairs():
+        if muleFlowTagList.containsTag('choicePlaceholder'):
+            afterChoiceBlock = False
+        else:
+            afterChoiceBlock = True
+        muleFlowName = ""
+        
+        # Define generic OrderedDicts for commonly used tag attributes
+        noAttributes = OrderedDict()
+        noAttributes['closeAtEnd'] = False
+        
+        mockReturn = OrderedDict()
+        mockReturn['closeAtEnd'] = False
+        mockReturn['payload'] = '#[]'
+        
+        mockAttribute = OrderedDict()
+        mockAttribute['closeAtEnd'] = True
+        mockAttribute['name'] = 'name'
+        
+        mockWhen = OrderedDict()
+        mockWhen['closeAtEnd'] = False
+        mockWhen['doc:name'] = 'Mock'
+        
+        flowPairs = muleFlowTagList.pairs()  # flowPairs is a list here
+        for pair in flowPairs:
             muleAttributes = pair.getAttributes()  # Attributes for the given Mule XML tag
             mUnitAttributes = OrderedDict()  # Holder for MUnit attributes if they are created
             mUnitAttributes['closeAtEnd'] = muleAttributes.get('closeAtEnd')  # Pass closeAtEnd for final output parsing
             
             if pair.getTag() == 'flow':
                 if 'name' in muleAttributes:
-                    mUnitAttributes['name'] = str(muleAttributes.get('name')) + '-test-'
+                    muleFlowName = muleAttributes.get('name')
+                    mUnitAttributes['name'] = muleAttributes.get('name') + '-test-'
                     mUnitAttributes['description'] = 'Unit Test for ' + muleAttributes.get('name')
                 else:
                     mUnitAttributes['name'] = 'UnitTestFlow'
                     mUnitAttributes['description'] = 'Unit Test Flow for unnamed Mule Flow'
-                mUnitTagList.append(TagPair('munit:test', mUnitAttributes))       
-            
+                mUnitTagList.append(TagPair('munit:test', mUnitAttributes)) 
+                # Place a mock payload if a payload isn't set at the start of the flow 
+                nextPairTag = flowPairs[flowPairs.index(pair) + 1].getTag() 
+                if (nextPairTag != 'set-payload' and nextPairTag != 'http:listener' and not 'inbound-endpoint' in nextPairTag):
+                    setAttributes = OrderedDict()
+                    setAttributes['closeAtEnd'] = True  
+                    setAttributes['payload'] = ''
+                    setAttributes['doc:name'] = 'Set Initial Test Payload'
+                    mUnitTagList.append(TagPair('munit:set', setAttributes))
+            # If at the entrance point to the flow, set a payload if one isn't set after
+            elif 'inbound-endpoint' in pair.getTag() or pair.getTag() == 'http:listener':
+                if not flowPairs[flowPairs.index(pair) + 1].getTag() == 'set-payload':
+                    setAttributes = OrderedDict()
+                    setAttributes['closeAtEnd'] = True  
+                    setAttributes['payload'] = ''
+                    setAttributes['doc:name'] = 'Set Initial Test Payload'
+                    mUnitTagList.append(TagPair('munit:set', setAttributes))
             elif pair.getTag() == '/flow':
-                mUnitTagList.append(TagPair('/munit:test', mUnitAttributes))       
+                mUnitTagList.append(TagPair('/munit:test', noAttributes))       
             
             elif pair.getTag() == 'choicePlaceholder':
-                mUnitTagList.append(pair)
+                afterChoiceBlock = True
+                muleFlowTagList.remove(pair)
+                flowRef = OrderedDict()
+                flowRef['closeAtEnd'] = True
+                flowRef['name'] = muleFlowName
+                flowRef['doc:name'] = 'Flow-ref to ' + muleFlowName
+                mUnitTagList.append(TagPair('flow-ref', flowRef))
                 
             elif pair.getTag() == 'set-payload':
-                mUnitAttributes['payload'] = muleAttributes.get('value')
-                if 'doc:name' in muleAttributes:
-                    mUnitAttributes['doc:name'] = muleAttributes.get('doc:name')
-                mUnitTagList.append(TagPair('munit:set', mUnitAttributes))  
-            
-            elif pair.getTag() == 'flow-ref':  # Will likely want to change to mock verify call
-                if 'name' in muleAttributes:
-                    mUnitAttributes['name'] = muleAttributes.get('name')
-                elif 'doc:name' in muleAttributes:
-                    mUnitAttributes['doc:name'] = muleAttributes.get('doc:name')
-                mUnitTagList.append(TagPair('flow-ref', mUnitAttributes)) 
-            
+                if afterChoiceBlock:  # Assert payload value
+                    assertPayload = OrderedDict()
+                    assertPayload['closeAtEnd'] = True
+                    assertPayload['message'] = 'Incorrect payload!'
+                    assertPayload['expectedValue'] = muleAttributes['value']
+                    mUnitTagList.append(TagPair('munit:assert-payload-equals', assertPayload))
+                else:  # if before choice block, mock payload value
+                    mockWhenCopy = mockWhen.copy()
+                    mockWhenCopy['messageProcessor'] = 'mule:set-payload'
+                    mUnitTagList.append(TagPair('mock:when', mockWhenCopy))
+                    mUnitTagList.append(TagPair('mock:with-attributes', noAttributes))
+                    
+                    mockAttributeCopy = mockAttribute.copy()
+                    mockAttributeCopy['whereValue'] = "#['Set Original Payload']"
+                    mockAttributeCopy['name'] = 'doc:name'
+                    mUnitTagList.append(TagPair('mock:with-attribute', mockAttributeCopy))
+                    mUnitTagList.append(TagPair('/mock:with-attributes', noAttributes))
+
+                    mockReturnCopy = mockReturn.copy()
+                    mockReturnCopy['closeAtEnd'] = True
+                    mUnitTagList.append(TagPair('mock:then-return', mockReturnCopy))
+                    mUnitTagList.append(TagPair('/mock:when', noAttributes))
+                    
+            elif pair.getTag() == 'flow-ref':  # Create MUnit structure for flow ref
+                # Mock flow-ref to sub-flow
+                if ('subflow' in muleAttributes['name'].lower() or 'sub-flow' in muleAttributes['name'].lower()
+                    or 'sub_flow' in muleAttributes['name'].lower() or 'sub flow' in muleAttributes['name'].lower()):
+                    mockVerify = OrderedDict()
+                    mockVerify['closeAtEnd'] = False
+                    mockVerify['messageProcessor'] = 'mule:sub-flow'
+                    mockVerify['doc:name'] = 'Verify Call'
+                    mockVerify['times'] = '1'
+                    mUnitTagList.append(TagPair('mock:verify-call', mockVerify))
+                    mUnitTagList.append(TagPair('mock:with-attributes', noAttributes))
+                    
+                    mockAttributeCopy = mockAttribute.copy()
+                    mockAttributeCopy['whereValue'] = "#[matchContains('" + muleAttributes['name'] + "')]"
+                    mUnitTagList.append(TagPair('mock:with-attribute', mockAttributeCopy))
+                    mUnitTagList.append(TagPair('/mock:with-attributes', noAttributes))
+                    mUnitTagList.append(TagPair('/mock:verify-call', noAttributes))
+                else:  # Mock flow-ref to flow
+                    mockWhenCopy = mockWhen.copy()
+                    mockWhenCopy['messageProcessor'] = 'mule:flow'
+                    mUnitTagList.append(TagPair('mock:when', mockWhenCopy))
+                    mUnitTagList.append(TagPair('mock:with-attributes', noAttributes))
+                
+                    mockAttributeCopy = mockAttribute.copy()
+                    mockAttributeCopy['whereValue'] = "#['" + muleAttributes['name'] + "']"
+                    mUnitTagList.append(TagPair('mock:with-attribute', mockAttributeCopy))
+                    mUnitTagList.append(TagPair('/mock:with-attributes', noAttributes))
+                    mUnitTagList.append(TagPair('mock:then-return', mockReturn))
+                    mUnitTagList.append(TagPair('mock:invocation-properties', noAttributes))
+                
+                    mockProperty = OrderedDict()
+                    mockProperty['closeAtEnd'] = True
+                    mockProperty['key'] = ''
+                    mockProperty['value'] = ''
+                    mUnitTagList.append(TagPair('mock:invocation-property', mockProperty))
+                    mUnitTagList.append(TagPair('/mock:invocation-properties', noAttributes))
+                    mUnitTagList.append(TagPair('/mock:then-return', noAttributes))
+                    mUnitTagList.append(TagPair('/mock:when', noAttributes))
+                
             elif pair.getTag() == '/mule':
                 mUnitTagList.append(TagPair('/mule', mUnitAttributes))
         return mUnitTagList
@@ -178,24 +269,27 @@ class MuleLines:
     # Extracts operations performed in a choice block in the provided flow.
     # Returns a TagList containing the choice operations.
     # Can raise a TypeError if an incorrect parameter type is provided.
-    def _extractChoiceOperations(self, flowTagList : TagList) -> TagList:
+    def _extractChoiceOperations(self, flowTagList : TagList) -> []:
         if not isinstance(flowTagList, TagList):
             raise TypeError('Invalid parameter type passed to MuleLines _extractChoiceOperations')
-        choiceOperations = TagList()
+        choiceOperations = []
+        caseOperations = TagList()
         inChoiceClause = False
         for pair in flowTagList.pairs():
             if pair.getTag() == 'when' or pair.getTag() == 'otherwise':
                 inChoiceClause = True
             elif pair.getTag() == '/when' or pair.getTag() == '/otherwise':
                 inChoiceClause = False
+                choiceOperations.append(caseOperations.copy())
+                caseOperations.clear()
             elif inChoiceClause:
-                choiceOperations.append(pair)
+                caseOperations.append(pair)
         return choiceOperations
     
     # Reads the specified file and returns a list of file lines.
     # Splits whitespace and takes only lines beginning in tags
-    def _extractMuleFileLines(self) -> None:
-        with open(self._inputFileName, 'r') as file:
+    def _extractMuleFileLines(self, inputFilePath : str) -> None:
+        with open(inputFilePath, 'r') as file:
             self._muleFileLines = file.readlines()
         self._muleFileLines = list(filter(None, [x.lstrip(' ').strip() for x in self._muleFileLines]))
         for line in self._muleFileLines:
@@ -216,17 +310,18 @@ class MuleLines:
         muleAttributes = OrderedDict()
         muleAttributes['closeAtEnd'] = False
         muleAttributes['xmlns'] = 'http://www.mulesoft.org/schema/mule/core'
-        muleAttributes['xmlns:mock'] = 'http://www.mulesoft.org/schema/mule/mock'
+        muleAttributes['\n\txmlns:mock'] = 'http://www.mulesoft.org/schema/mule/mock'
         muleAttributes['xmlns:munit'] = 'http://www.mulesoft.org/schema/mule/munit'
-        muleAttributes['xmlns:doc'] = 'http://www.mulesoft.org/schema/mule/documentation'
+        muleAttributes['\n\txmlns:doc'] = 'http://www.mulesoft.org/schema/mule/documentation'
         muleAttributes['xmlns:spring'] = 'http://www.springframework.org/schema/beans'
-        muleAttributes['xmlns:core'] = 'http://www.mulesoft.org/schema/mule/core'
+        muleAttributes['\n\txmlns:core'] = 'http://www.mulesoft.org/schema/mule/core'
         muleAttributes['version'] = 'EE-3.7.3'
-        muleAttributes['xmlns:xsi'] = 'http://www.w3.org/2001/XMLSchema-instance'
-        muleAttributes['xsi:schemaLocation'] = """http://www.mulesoft.org/schema/mule/mock http://www.mulesoft.org/schema/mule/mock/current/mule-mock.xsd
-http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
-http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
-http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd"""
+        muleAttributes['\n\txmlns:xsi'] = 'http://www.w3.org/2001/XMLSchema-instance'
+        muleAttributes['xsi:schemaLocation'] = """http://www.mulesoft.org/schema/mule/mock 
+    http://www.mulesoft.org/schema/mule/mock/current/mule-mock.xsd http://www.mulesoft.org/schema/mule/munit 
+    http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.springframework.org/schema/beans 
+    http://www.springframework.org/schema/beans/spring-beans-current.xsd http://www.mulesoft.org/schema/mule/core 
+    http://www.mulesoft.org/schema/mule/core/current/mule.xsd"""
         self._mUnitTagList.append(TagPair('mule', muleAttributes))
         # Set munit:config tag and attributes
         configAttributes = OrderedDict()
@@ -246,21 +341,22 @@ http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/cor
         self._extractSpringInternals()  # Extract spring tags and insert them into the MUnit TagList
         self._mUnitTagList.append(TagPair('/spring:beans', springBeansAttributes))
         
-    # Generates MUnit Test Flows given the operations performed in a choice block, 
+    # Generates MUnit Test Flows given the operations performed in a choice block 
     # and a TagList of a flow containing a choicePlaceholder tag.
     # Can raise a type error if invalid parameter types are provided.
-    def _generateMUnitTestFlows(self, choiceOperations : TagList, mUnitBaseTagList : TagList) -> []:
-        if not isinstance(choiceOperations, TagList) or not isinstance(mUnitBaseTagList, TagList):
+    def _generateMUnitTestFlows(self, choiceOperations : [], mUnitBaseTagList : TagList) -> []:
+        if not isinstance(choiceOperations, list) or not isinstance(mUnitBaseTagList, TagList):
             raise TypeError('Invalid parameter types passed to MuleLines _generateMUnitTestFlows')
         outputFlows = []
         # Create a flow for each choice operation. (Later support should include multiple operations)
-        for choiceOp in choiceOperations.pairs():
-            for pair in mUnitBaseTagList.pairs():
-                if pair.getTag() == 'choicePlaceholder':
-                    # replace placeholder with choiceOperation
-                    pair.setTag(choiceOp.getTag())
-                    pair.setAttributes(choiceOp.getAttributes())
-            outputFlows.append(mUnitBaseTagList)     
+        for choiceTagList in choiceOperations:
+            mUnitCopy = mUnitBaseTagList.copy()
+            pair = mUnitCopy.getPair('choicePlaceholder')
+            pairIndex = mUnitCopy.index(pair)
+            for choicePair in choiceTagList.pairs():
+                pairIndex += 1  # Increment index for each pair to maintain correct order
+                mUnitCopy.insertAtIndex(pairIndex, choicePair)
+            outputFlows.append(mUnitCopy)     
         return outputFlows
         
     # Iterates through the muleTagList and returns a list of TagLists, where each

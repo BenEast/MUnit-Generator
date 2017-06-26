@@ -2,7 +2,7 @@ from TagPair import TagPair
 
 ###########################
 # Author: Benjamin East
-# Last Updated: 06/24/2017
+# Last Updated: 06/25/2017
 ###########################
         
 # A custom class to act as an ordered list of XML tags, paired with an OrderedDict of the
@@ -33,10 +33,11 @@ class TagList:
 
     # Returns a string output for the TagList.
     def __str__(self) -> str:
-        output = ''
+        output = '--- TagList ---\n'
         for pair in self._list:
             output += str(pair) + '\n'
-        return output[:-1]  # Strip the last newline
+        output += '---------------'
+        return output
     
     # Inserts a TagPair into the TagList.
     # Can raise a TypeError if an incorrect type is given.
