@@ -9,7 +9,7 @@ from MuleLines import MuleLines
 
 # Main method for development/testing purposes
 def main() -> None:
-    """   
+
     print('Please provide the input file path and output file path using the --input and --output commands.\n')
     print('Please format the file paths as follows: C:/folder/filename or just filename\n\n')
     parser = argparse.ArgumentParser()
@@ -18,9 +18,6 @@ def main() -> None:
     args = parser.parse_args()
     inputFile = args.input
     outputFile = args.output
-    """
-    inputFile = './examples/basic/generic/example.xml'
-    outputFile = './examples/basic/generic/Generated_Test.xml'
 
     print('Generating MUnit Test File...')
     startTime = time.time()

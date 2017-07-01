@@ -7,7 +7,7 @@ from TagPair import TagPair
 
 ###########################
 # Author: Benjamin East
-# Last Updated: 06/25/2017
+# Last Updated: 07/01/2017
 ###########################
 
 # A custom class to parse lines of Mule code and generate mUnit tests based on
@@ -136,7 +136,7 @@ class MuleLines:
                             attrDict['closeAtEnd'] = False
                             attrDict[attrAndValue[0]] = attrAndValue[1][:-1]  # Strip closing bracket
                         
-                        else: # Add to the dict if it's a middle attribute
+                        else:  # Add to the dict if it's a middle attribute
                             attrDict[attrAndValue[0]] = attrAndValue[1]
                     
                     self._muleTagList.append(TagPair(splitLine[0].lower().strip('<'), attrDict))
@@ -160,8 +160,9 @@ class MuleLines:
         # Values used for tracking info throughout the method
         muleFlowName = ""
         mUnitTagList = TagList()
-        afterChoiceBlock = True # Used to determine certain tag types
-        flowContainsDatabase = False # Used to create before and after flows for DB mocking
+        afterChoiceBlock = True  # Used to determine certain tag types
+        flowContainsDatabase = False  # Used to create before and after flows for DB mocking
+        flowContainsFTP = False
         
         # Define generic OrderedDicts for commonly used tag attributes
         noAttributes = OrderedDict({'closeAtEnd': False})
@@ -182,11 +183,23 @@ class MuleLines:
             flowContainsDatabase = True
             
             # Create before suite block to start a DB mock
-            beforeAttributes = OrderedDict({'closeAtEnd': False, 'name': 'beforeTest',
+            beforeAttributes = OrderedDict({'closeAtEnd': False, 'name': 'before-DB',
                                             'description': 'Start DB Server'})
             mUnitTagList.append(TagPair('munit:before-suite', beforeAttributes))
             
-            startAttributes = OrderedDict({'closeAtEnd': True, 'config-ref': '', 'doc:name': 'Start Server'})
+            startAttributes = OrderedDict({'closeAtEnd': True, 'config-ref': '', 'doc:name': 'Start DB'})
+            mUnitTagList.append(TagPair('dbserver:start-db-server', startAttributes))
+            mUnitTagList.append(TagPair('/munit:before-suite', noAttributes))
+            
+        # Check if FTP connector is in the flow
+        if muleFlowTagList.containsTag('ftp:outbound-endpoint'):
+            flowContainsFTP = True
+            
+            # Add FTP before-suite block to start an FTP mock
+            beforeAttributes = OrderedDict({'closeAtEnd': False, 'name': 'before-FTP',
+                                            'description': 'Start DB Server'})
+            mUnitTagList.append(TagPair('munit:before-suite', beforeAttributes))
+            startAttributes = OrderedDict({'closeAtEnd': True, 'config-ref': '', 'doc:name': 'Start FTP'})
             mUnitTagList.append(TagPair('dbserver:start-db-server', startAttributes))
             mUnitTagList.append(TagPair('/munit:before-suite', noAttributes))
             
@@ -194,17 +207,27 @@ class MuleLines:
         flowPairs = muleFlowTagList.pairs()
         for pair in flowPairs:
             muleAttributes = pair.getAttributes()  # Attributes for the given Mule XML tag
-
+            
+            # Handle choicePlaceholder tag       
+            if pair.getTag() == 'choicePlaceholder':
+                afterChoiceBlock = True
+                muleFlowTagList.remove(pair)
+                
+                # Insert flow ref to Mule flow
+                flowRef = OrderedDict({'closeAtEnd': True, 'name': muleFlowName, 'doc:name': 
+                                       'Flow-ref to ' + muleFlowName})
+                mUnitTagList.append(TagPair('flow-ref', flowRef))
+            
             # Handle flow tag
-            if pair.getTag() == 'flow':
+            elif pair.getTag() == 'flow':
                 flowAttributes = OrderedDict({'closeAtEnd': False})
                 
-                if 'name' in muleAttributes: # Get the name, store it and set MUnit test name
+                if 'name' in muleAttributes:  # Get the name, store it and set MUnit test name
                     muleFlowName = muleAttributes.get('name')
                     flowAttributes['name'] = muleAttributes.get('name') + '-test-'
                     flowAttributes['description'] = 'Unit Test for ' + muleAttributes.get('name')
                 
-                else: # Set generic MUnit test name
+                else:  # Set generic MUnit test name
                     flowAttributes['name'] = 'UnitTestFlow'
                     flowAttributes['description'] = 'Unit Test Flow for unnamed Mule Flow'
                     
@@ -218,50 +241,7 @@ class MuleLines:
                     setAttributes = OrderedDict({'closeAtEnd': True, 'payload': '',
                                                  'doc:name': 'Set Initial Test Payload'})
                     mUnitTagList.append(TagPair('munit:set', setAttributes))
-                    
-            # If at the entrance point to the flow, set a payload if one isn't set after
-            elif 'inbound-endpoint' in pair.getTag() or pair.getTag() == 'http:listener':
-                if not flowPairs[flowPairs.index(pair) + 1].getTag() == 'set-payload':
-                    
-                    setAttributes = OrderedDict({'closeAtEnd': True, 'payload': '',
-                                                 'doc:name': 'Set Initial Test Payload'})
-                    mUnitTagList.append(TagPair('munit:set', setAttributes))
-            
-            # Handle choicePlaceholder tag       
-            elif pair.getTag() == 'choicePlaceholder':
-                afterChoiceBlock = True
-                muleFlowTagList.remove(pair)
-                
-                # Insert flow ref to Mule flow
-                flowRef = OrderedDict({'closeAtEnd': True, 'name': muleFlowName, 'doc:name': 
-                                       'Flow-ref to ' + muleFlowName})
-                mUnitTagList.append(TagPair('flow-ref', flowRef))
-            
-            # Handle set-payload tag
-            elif pair.getTag() == 'set-payload':
-                if afterChoiceBlock:  # Assert payload value
-                    
-                    assertPayload = OrderedDict({'closeAtEnd': True, 'message': 'Incorrect payload!',
-                                                 'expectedValue': muleAttributes['value']})
-                    mUnitTagList.append(TagPair('munit:assert-payload-equals', assertPayload))
-                    
-                else:  # if before choice block, mock payload value
-                    mockWhenCopy = mockWhen.copy()
-                    mockWhenCopy['messageProcessor'] = 'mule:set-payload'
-                    mUnitTagList.append(TagPair('mock:when', mockWhenCopy))
-                    mUnitTagList.append(TagPair('mock:with-attributes', noAttributes))
-                    
-                    mockAttributeCopy = mockAttribute.copy()
-                    mockAttributeCopy['whereValue'] = "#['Set Original Payload']"
-                    mockAttributeCopy['name'] = 'doc:name'
-                    mUnitTagList.append(TagPair('mock:with-attribute', mockAttributeCopy))
-                    mUnitTagList.append(TagPair('/mock:with-attributes', noAttributes))
-
-                    mockReturnCopy = mockReturn.copy()
-                    mockReturnCopy['closeAtEnd'] = True
-                    mUnitTagList.append(TagPair('mock:then-return', mockReturnCopy))
-                    mUnitTagList.append(TagPair('/mock:when', noAttributes))
-            
+                        
             # Handle flow-ref tag       
             elif pair.getTag() == 'flow-ref':  # Create MUnit structure for flow ref
                 # Mock flow-ref to sub-flow
@@ -302,19 +282,70 @@ class MuleLines:
                     mUnitTagList.append(TagPair('/mock:then-return', noAttributes))
                     mUnitTagList.append(TagPair('/mock:when', noAttributes))
             
+            # Handle ftp:outbound-endpoint tag
+            elif pair.getTag() == 'ftp:outbound-endpoint':
+                ftpAttributes = OrderedDict({'closeAtEnd': True, 'file': pair.getAttribute('outputPattern'),
+                                             'path': pair.getAttribute('path'), 'config-ref': ''})
+                mUnitTagList.append(TagPair('ftpserver:contains-files', ftpAttributes))
+                        
+            # If at the entrance point to the flow, set a payload if one isn't set after
+            elif 'inbound-endpoint' in pair.getTag() or pair.getTag() == 'http:listener':
+                if not flowPairs[flowPairs.index(pair) + 1].getTag() == 'set-payload':
+                    
+                    setAttributes = OrderedDict({'closeAtEnd': True, 'payload': '',
+                                                 'doc:name': 'Set Initial Test Payload'})
+                    mUnitTagList.append(TagPair('munit:set', setAttributes))
+
+            # Handle set-payload tag
+            elif pair.getTag() == 'set-payload':
+                if afterChoiceBlock:  # Assert payload value
+                    
+                    assertPayload = OrderedDict({'closeAtEnd': True, 'message': 'Incorrect payload!',
+                                                 'expectedValue': muleAttributes['value']})
+                    mUnitTagList.append(TagPair('munit:assert-payload-equals', assertPayload))
+                    
+                else:  # if before choice block, mock payload value
+                    mockWhenCopy = mockWhen.copy()
+                    mockWhenCopy['messageProcessor'] = 'mule:set-payload'
+                    mUnitTagList.append(TagPair('mock:when', mockWhenCopy))
+                    mUnitTagList.append(TagPair('mock:with-attributes', noAttributes))
+                    
+                    mockAttributeCopy = mockAttribute.copy()
+                    mockAttributeCopy['whereValue'] = "#['Set Original Payload']"
+                    mockAttributeCopy['name'] = 'doc:name'
+                    mUnitTagList.append(TagPair('mock:with-attribute', mockAttributeCopy))
+                    mUnitTagList.append(TagPair('/mock:with-attributes', noAttributes))
+
+                    mockReturnCopy = mockReturn.copy()
+                    mockReturnCopy['closeAtEnd'] = True
+                    mUnitTagList.append(TagPair('mock:then-return', mockReturnCopy))
+                    mUnitTagList.append(TagPair('/mock:when', noAttributes))
+ 
             # Handle /flow tag 
             elif pair.getTag() == '/flow':
                 mUnitTagList.append(TagPair('/munit:test', noAttributes))    
                 
+                # Add DB after-suite case
                 if flowContainsDatabase:  # Create mUnit after-suite code to stop the database
                     
-                    afterAttributes = OrderedDict({'closeAtEnd': False, 'name': muleFlowName + '-After_Suite',
-                                                   'description': 'Stop Database'})
+                    afterAttributes = OrderedDict({'closeAtEnd': False, 'name': muleFlowName + '-After_Suite_DB',
+                                                   'description': 'Stop DB Server'})
                     mUnitTagList.append(TagPair('munit:after-suite', afterAttributes))
                     
                     stopAttributes = OrderedDict({'closeAtEnd': True, 'config-ref': '',
                                                   'doc:name': 'Stop Server'})
                     mUnitTagList.append(TagPair('dbserver:stop-db-server', stopAttributes))
+                    mUnitTagList.append(TagPair('/munit:after-suite', noAttributes))
+                
+                # Add FTP after-suite case
+                if flowContainsFTP:
+                    
+                    afterAttributes = OrderedDict({'closeAtEnd': False, 'name': muleFlowName + '-After_Suite_FTP',
+                                                   'description': 'Stop FTP Server'})
+                    mUnitTagList.append(TagPair('munit:after-suite', afterAttributes))
+                    
+                    stopAttributes = OrderedDict({'closeAtEnd': True, 'config-ref': ''})
+                    mUnitTagList.append(TagPair('ftpserver:stop-server', stopAttributes))
                     mUnitTagList.append(TagPair('/munit:after-suite', noAttributes))
             
             # Handle /mule tag
