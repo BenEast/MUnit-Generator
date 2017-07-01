@@ -75,7 +75,8 @@ The MUnit Generator is capable of produing the following:
 	xmlns:mock="http://www.mulesoft.org/schema/mule/mock" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" 
 	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:spring="http://www.springframework.org/schema/beans" 
 	xmlns:core="http://www.mulesoft.org/schema/mule/core" version="EE-3.7.3" 
-	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/mock 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/mock 
         http://www.mulesoft.org/schema/mule/mock/current/mule-mock.xsd http://www.mulesoft.org/schema/mule/munit 
         http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.springframework.org/schema/beans 
         http://www.springframework.org/schema/beans/spring-beans-current.xsd http://www.mulesoft.org/schema/mule/core 
