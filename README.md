@@ -77,10 +77,10 @@ The MUnit Generator is capable of produing the following:
 	xmlns:core="http://www.mulesoft.org/schema/mule/core" version="EE-3.7.3" 
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
 	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/mock 
-        http://www.mulesoft.org/schema/mule/mock/current/mule-mock.xsd http://www.mulesoft.org/schema/mule/munit 
-        http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.springframework.org/schema/beans 
-        http://www.springframework.org/schema/beans/spring-beans-current.xsd http://www.mulesoft.org/schema/mule/core 
-        http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+    http://www.mulesoft.org/schema/mule/mock/current/mule-mock.xsd http://www.mulesoft.org/schema/mule/munit 
+    http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.springframework.org/schema/beans 
+    http://www.springframework.org/schema/beans/spring-beans-current.xsd http://www.mulesoft.org/schema/mule/core 
+    http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
 	<munit:config name="munit" doc:name="Munit Configuration"/>
 	<spring:beans>
 		<spring:import resource="classpath:example.xml"/>
