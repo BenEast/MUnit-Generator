@@ -150,4 +150,4 @@ The MUnit Generator is capable of produing the following:
 </mule>
 ```
 
-You may notice that certain fields, such as "munit:set payload" and "mock:invocation-property" were left blank by the generator. The end user will need to insert values where necessary to complete the MUnit test. I hope to work through this issue in future versions to allow for complete, functioning tests to be produced.
+You may notice that certain fields, such as ```<munit:set payload="" .../>``` and ```<mock:invocation-property key="" value=""/>``` were left blank by the generator. The end user will need to insert values where necessary to complete the MUnit test. I hope to work through this issue in future versions to allow for complete, functioning tests to be produced.
