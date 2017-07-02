@@ -26,12 +26,13 @@ class MuleLines:
         self._generateMUnitDependencies()
         # isolateFlows returns an array of TagLists, which are each a mule flow
         for flow in self._isolateFlows():
-            # Convert operations in choice blocks to mUnit code
-            mUnitChoiceOperations = self._extractChoiceOperations(flow)
-            self._replaceChoiceBlocks(flow)
-            
-            # Generate multiple test flows if a choice block is present
-            if flow.containsTag('choicePlaceholder'):
+
+            if flow.containsTag('choice'):
+                # Convert operations in choice blocks to mUnit code
+                mUnitChoiceOperations = self._extractChoiceOperations(flow)
+                self._replaceChoiceBlocks(flow)
+                
+                # Generate multiple test flows if a choice block is present
                 for flow in self._generateMUnitTestFlows(mUnitChoiceOperations, flow):
                     mUnitFlow = self._convertMuletoMUnit(flow)  # Convert each test flow to MUnit
                     for pair in mUnitFlow.pairs():
